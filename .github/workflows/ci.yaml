@@ -16,7 +16,7 @@ jobs:
     
     steps:
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
     
@@ -24,7 +24,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4 
       with:
         path: |
           ~/.cache/go-build
@@ -43,7 +43,7 @@ jobs:
       run: go tool cover -html=coverage.out -o coverage.html
     
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4 
       with:
         name: coverage-report-go${{ matrix.go-version }}
         path: |
@@ -65,7 +65,7 @@ jobs:
     
     steps:
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5  
       with:
         go-version: '1.22'
     
@@ -73,7 +73,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Cache Go modules
-      uses: actions/cache@v3
+      uses: actions/cache@v4 
       with:
         path: |
           ~/.cache/go-build
@@ -86,7 +86,7 @@ jobs:
       run: go mod download
     
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v4 
       with:
         version: latest
         args: --timeout=5m --config=.golangci.yml
@@ -98,12 +98,15 @@ jobs:
     
     steps:
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5 
       with:
         go-version: '1.22'
     
     - name: Check out code
       uses: actions/checkout@v4
+    
+    - name: Create build directory
+      run: mkdir -p build
     
     - name: Build for multiple platforms
       run: |
@@ -113,7 +116,35 @@ jobs:
         GOOS=darwin GOARCH=arm64 go build -o build/ueba-generator-darwin-arm64 ./cmd/ueba-generator
     
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  
       with:
         name: binaries
         path: build/
+        compression-level: 6  
+        retention-days: 30    
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    
+    - name: Check out code
+      uses: actions/checkout@v4
+    
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './...'
+    
+    - name: Upload Gosec report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: gosec-report
+        path: results.sarif
+        retention-days: 30
