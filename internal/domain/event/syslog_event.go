@@ -1,4 +1,4 @@
-package domain
+package event
 
 import (
 	"encoding/json"

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	domain "github.com/nashabanov/ueba-event-generator/internal/domain/event"
+	"github.com/nashabanov/ueba-event-generator/internal/domain/event"
 )
 
 // Pipeline - интерфейс для пайплайна
@@ -24,7 +24,7 @@ type Pipeline interface {
 // Stage - интерфейс для этапа пайплайна
 type Stage interface {
 	Name() string
-	Run(ctx context.Context, in <-chan domain.Event, out chan<- domain.Event) error
+	Run(ctx context.Context, in <-chan event.Event, out chan<- event.Event) error
 }
 
 type PipelineStatus int
@@ -43,12 +43,12 @@ type pipelineImpl struct {
 	status PipelineStatus
 	mu     sync.RWMutex // защищает изменения статуса
 
-	stages   []Stage             // список этапов
-	channels []chan domain.Event // канал между стадиями
+	stages   []Stage            // список этапов
+	channels []chan event.Event // канал между стадиями
 
 	// Входной и выходной каналы
-	inputChan  chan domain.Event
-	outputChan chan domain.Event
+	inputChan  chan event.Event
+	outputChan chan event.Event
 
 	// Управление жизненным циклом
 	ctx    context.Context
@@ -64,10 +64,10 @@ func NewPipeline(bufferSize int) Pipeline {
 	return &pipelineImpl{
 		status:   Stopped,
 		stages:   make([]Stage, 0),
-		channels: make([]chan domain.Event, 0),
+		channels: make([]chan event.Event, 0),
 
-		inputChan:  make(chan domain.Event, bufferSize),
-		outputChan: make(chan domain.Event, bufferSize),
+		inputChan:  make(chan event.Event, bufferSize),
+		outputChan: make(chan event.Event, bufferSize),
 
 		bufferSize: bufferSize,
 	}
@@ -155,13 +155,13 @@ func (p *pipelineImpl) createChannels() {
 	}
 
 	if stageCount == 1 {
-		p.channels = make([]chan domain.Event, 0)
+		p.channels = make([]chan event.Event, 0)
 		return
 	}
 
-	p.channels = make([]chan domain.Event, stageCount-1)
+	p.channels = make([]chan event.Event, stageCount-1)
 	for i := 0; i < stageCount-1; i++ {
-		p.channels[i] = make(chan domain.Event, p.bufferSize)
+		p.channels[i] = make(chan event.Event, p.bufferSize)
 		fmt.Printf("Created intermediate channel %d with buffer size %d\n", i, p.bufferSize)
 	}
 }
@@ -174,7 +174,7 @@ func (p *pipelineImpl) startStages() {
 
 		p.wg.Add(1)
 
-		go func(s Stage, in <-chan domain.Event, out chan<- domain.Event, index int) {
+		go func(s Stage, in <-chan event.Event, out chan<- event.Event, index int) {
 			defer p.wg.Done()
 
 			fmt.Printf("Stage '%s' started\n", s.Name())
@@ -190,7 +190,7 @@ func (p *pipelineImpl) startStages() {
 }
 
 // getInputChannel возвращает входной канал для указанной стадии
-func (p *pipelineImpl) getInputChannel(stageIndex int) <-chan domain.Event {
+func (p *pipelineImpl) getInputChannel(stageIndex int) <-chan event.Event {
 	if stageIndex == 0 {
 		return p.inputChan // Первая стадия читает из входа
 	}
@@ -198,7 +198,7 @@ func (p *pipelineImpl) getInputChannel(stageIndex int) <-chan domain.Event {
 }
 
 // getOutputChannel возвращает выходной канал для указанной стадии
-func (p *pipelineImpl) getOutputChannel(stageIndex int) chan<- domain.Event {
+func (p *pipelineImpl) getOutputChannel(stageIndex int) chan<- event.Event {
 	if stageIndex == len(p.stages)-1 {
 		return p.outputChan // Последняя пишет в выход
 	}

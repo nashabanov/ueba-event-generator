@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	domain "github.com/nashabanov/ueba-event-generator/internal/domain/event"
+	"github.com/nashabanov/ueba-event-generator/internal/domain/event"
 )
 
 // MockStage - заглушка стадии для тестирования
@@ -25,7 +25,7 @@ func (m *MockStage) Name() string {
 	return m.name
 }
 
-func (m *MockStage) Run(ctx context.Context, in <-chan domain.Event, out chan<- domain.Event) error {
+func (m *MockStage) Run(ctx context.Context, in <-chan event.Event, out chan<- event.Event) error {
 	m.runCount++
 
 	// Простая логика: читаем из in, передаем в out
@@ -160,7 +160,7 @@ func TestPipeline_EventFlow(t *testing.T) {
 	impl := pipeline.(*pipelineImpl)
 
 	// Создаем тестовое событие
-	event := domain.NewNetflowEvent()
+	event := event.NewNetflowEvent()
 
 	// Отправляем событие в pipeline
 	go func() {
@@ -215,7 +215,7 @@ func BenchmarkPipeline_Throughput(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		event := domain.NewNetflowEvent()
+		event := event.NewNetflowEvent()
 		impl.inputChan <- event
 	}
 
