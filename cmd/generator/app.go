@@ -12,6 +12,7 @@ import (
 
 	"github.com/nashabanov/ueba-event-generator/internal/config"
 	"github.com/nashabanov/ueba-event-generator/internal/domain/event"
+	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
 	"github.com/nashabanov/ueba-event-generator/internal/pipeline/coordinator"
 	"github.com/nashabanov/ueba-event-generator/internal/pipeline/stages"
 )
@@ -22,6 +23,7 @@ type Application struct {
 	pipeline  coordinator.Pipeline
 	genStage  *stages.EventGenerationStage // ✅ Ссылка на стадию генерации
 	sendStage *stages.NetworkSendingStage  // ✅ Ссылка на стадию отправки
+	monitor   *monitoring.Monitor
 }
 
 // NewApplication создает новое приложение
@@ -33,7 +35,6 @@ func NewApplication(cfg *config.Config) *Application {
 
 // Run запускает приложение и управляет жизненным циклом
 func (app *Application) Run() error {
-	// Создаем pipeline на основе конфигурации
 	if err := app.createPipeline(); err != nil {
 		return fmt.Errorf("failed to create pipeline: %w", err)
 	}
@@ -41,7 +42,6 @@ func (app *Application) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Поддержка duration из конфигурации
 	if app.config.Generator.Duration > 0 {
 		log.Printf("Application will run for: %v", app.config.Generator.Duration)
 		ctx, cancel = context.WithTimeout(ctx, app.config.Generator.Duration)
@@ -50,10 +50,11 @@ func (app *Application) Run() error {
 
 	app.setupSignalHandling(cancel)
 
-	log.Printf("Starting pipeline with 2 stages...")
+	app.monitor = monitoring.NewMonitor(10 * time.Second)
 
-	// Запуск мониторинга
-	go app.monitorExecution(ctx)
+	go app.monitor.Start(ctx)
+
+	log.Printf("Starting pipeline with 2 stages...")
 
 	go func() {
 		if err := app.pipeline.Start(ctx); err != nil {
@@ -68,9 +69,6 @@ func (app *Application) Run() error {
 	if err := app.pipeline.Stop(); err != nil {
 		log.Printf("Error stopping pipeline: %v", err)
 	}
-
-	// Финальная статистика
-	app.printFinalStats()
 
 	log.Println("Application stopped successfully")
 	return nil
@@ -173,59 +171,6 @@ func (app *Application) parseEventTypes() ([]event.EventType, error) {
 	}
 
 	return eventTypes, nil
-}
-
-// monitorExecution мониторит выполнение и выводит статистику
-func (app *Application) monitorExecution(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	startTime := time.Now()
-
-	for {
-		select {
-		case <-ticker.C:
-			app.printCurrentStats(startTime)
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-// printCurrentStats выводит текущую статистику
-func (app *Application) printCurrentStats(startTime time.Time) {
-	duration := time.Since(startTime)
-
-	var generated, sent, failed uint64
-	if app.genStage != nil {
-		generated = app.genStage.GetGeneratedCount()
-	}
-	if app.sendStage != nil {
-		sent = app.sendStage.GetSentCount()
-		failed = app.sendStage.GetFailedCount()
-	}
-
-	rate := float64(generated) / duration.Seconds()
-
-	log.Printf("📊 Stats: Generated=%d, Sent=%d, Failed=%d, Rate=%.1f/sec, Runtime=%v",
-		generated, sent, failed, rate, duration.Truncate(time.Second))
-}
-
-// printFinalStats выводит финальную статистику
-func (app *Application) printFinalStats() {
-	log.Printf("=== Final Statistics ===")
-
-	if app.genStage != nil {
-		log.Printf("🔄 Generation: Generated=%d, Errors=%d",
-			app.genStage.GetGeneratedCount(), app.genStage.GetFailedCount())
-	}
-
-	if app.sendStage != nil {
-		log.Printf("📤 Sending: Sent=%d, Failed=%d",
-			app.sendStage.GetSentCount(), app.sendStage.GetFailedCount())
-	}
-
-	log.Printf("========================")
 }
 
 // setupSignalHandling настраивает обработку системных сигналов

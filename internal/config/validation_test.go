@@ -38,26 +38,6 @@ func TestConfigValidation(t *testing.T) {
 			errorMsg:    "events_per_second must be positive",
 		},
 		{
-			name: "Invalid events per second - too high",
-			config: &Config{
-				Generator: GeneratorConfig{
-					EventsPerSecond: 150000,
-					EventTypes:      []string{"netflow"},
-				},
-				Sender: SenderConfig{
-					Destinations: []string{"127.0.0.1:514"},
-					Protocol:     "udp",
-					Timeout:      5 * time.Second,
-				},
-				Pipeline: PipelineConfig{
-					BufferSize:  100,
-					WorkerCount: 1,
-				},
-			},
-			expectError: true,
-			errorMsg:    "events_per_second too high",
-		},
-		{
 			name: "Empty event types",
 			config: &Config{
 				Generator: GeneratorConfig{

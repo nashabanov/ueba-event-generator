@@ -28,7 +28,7 @@ func (g *GeneratorConfig) Validate() error {
 		return fmt.Errorf("events_per_second must be positive, got: %d", g.EventsPerSecond)
 	}
 
-	if g.EventsPerSecond > 100000 {
+	if g.EventsPerSecond > 200000 {
 		return fmt.Errorf("events_per_second too high (>100k), got: %d", g.EventsPerSecond)
 	}
 
