@@ -33,7 +33,7 @@ func (a *GenerationStageAdapter) Run(ctx context.Context, in <-chan event.Event,
 
 	errChan := make(chan error, 1)
 	go func() {
-		defer close(serializedChan) // ✅ Закрываем в горутине-писателе
+		defer close(serializedChan)
 		if err := a.generationStage.Run(ctx, serializedChan); err != nil {
 			errChan <- fmt.Errorf("generation stage error: %w", err)
 		}
@@ -47,12 +47,11 @@ func (a *GenerationStageAdapter) Run(ctx context.Context, in <-chan event.Event,
 				return nil
 			}
 
-			fmt.Printf("🎯 GenerationAdapter: got SerializedData, size=%d\n", len(serializedData.Data))
 			wrappedEvent := NewSerializedEvent(serializedData)
 
 			select {
 			case out <- wrappedEvent:
-				fmt.Printf("✅ GenerationAdapter: sent to pipeline\n")
+				// fmt.Printf("✅ GenerationAdapter: sent to pipeline\n")
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -105,19 +104,14 @@ func (a *SendingStageAdapter) Run(ctx context.Context, in <-chan event.Event, ou
 				return nil
 			}
 
-			fmt.Printf("📥 SendingAdapter: got incoming event\n")
-
 			serializedData, err := a.extractSerializedData(incomingEvent)
 			if err != nil {
 				return fmt.Errorf("failed to extract serialized data: %w", err)
 			}
 
-			fmt.Printf("📤 SendingAdapter: extracted SerializedData, size=%d, dest=%s\n",
-				len(serializedData.Data), serializedData.Destination)
-
 			select {
 			case serializedChan <- serializedData:
-				fmt.Printf("✅ SendingAdapter: sent to SendingStage\n")
+				// fmt.Printf("✅ SendingAdapter: sent to SendingStage\n")
 			case <-ctx.Done():
 				return ctx.Err()
 			}

@@ -82,6 +82,10 @@ func (l *Loader) ApplyFlags(flags *Flags) {
 	if flags.LogLevel != "" {
 		l.config.Logging.Level = flags.LogLevel
 	}
+
+	if flags.Duration > 0 {
+		l.config.Generator.Duration = flags.Duration
+	}
 }
 
 // GetConfig возвращает итоговую конфигурацию
