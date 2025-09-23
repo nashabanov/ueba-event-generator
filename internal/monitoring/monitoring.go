@@ -2,43 +2,69 @@ package monitoring
 
 import (
 	"context"
-	"log"
 	"time"
 
+	"github.com/nashabanov/ueba-event-generator/internal/logger"
 	"github.com/nashabanov/ueba-event-generator/internal/metrics"
 )
 
-// Monitor периодически выводит статистику
-type Monitor struct {
-	interval time.Duration
-	metrics  *metrics.PerformanceMetrics
+type Monitor interface {
+	Start(ctx context.Context)
+	Stop() error
 }
 
-func NewMonitor(interval time.Duration) *Monitor {
-	return &Monitor{
+// Monitor периодически выводит статистику
+type MonitorImp struct {
+	interval time.Duration
+	metrics  *metrics.PerformanceMetrics
+	stopChan chan struct{}
+	logger   logger.Logger
+}
+
+func NewMonitor(interval time.Duration, log logger.Logger) *MonitorImp {
+	return &MonitorImp{
 		interval: interval,
 		metrics:  metrics.GetGlobalMetrics(),
+		stopChan: make(chan struct{}),
+		logger:   log,
 	}
 }
 
-func (m *Monitor) Start(ctx context.Context) {
+func (m *MonitorImp) Start(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
-	log.Printf("📊 Monitor запущен: интервал %v", m.interval)
+	m.logger.Info("📊 Monitor запущен: интервал %v", m.interval)
 
 	for {
 		select {
 		case <-ticker.C:
-			// Выводим текущую статистику
-			log.Printf("%s", m.metrics.String())
+			m.logger.Info("%s", m.metrics.String())
 
 		case <-ctx.Done():
-			log.Printf("📊 Monitor остановлен")
-			// Финальная статистика
-			log.Printf("=== ФИНАЛЬНАЯ СТАТИСТИКА ===")
-			log.Printf("%s", m.metrics.String())
+			m.logger.Info("📊 Monitor остановлен")
+			m.printFinalStats()
+			return
+
+		case <-m.stopChan:
+			m.logger.Info("📊 Monitor остановлен (stop signal)")
+			m.printFinalStats()
 			return
 		}
 	}
+}
+
+func (m *MonitorImp) Stop() error {
+	select {
+	case <-m.stopChan:
+
+	default:
+		close(m.stopChan)
+	}
+	return nil
+}
+
+func (m *MonitorImp) printFinalStats() {
+	m.logger.Info("=== ФИНАЛЬНАЯ СТАТИСТИКА ===")
+	m.logger.Info("%s", m.metrics.String())
 }

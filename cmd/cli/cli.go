@@ -1,13 +1,16 @@
-package main
+package cli
 
 import (
 	"flag"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
+	"github.com/nashabanov/ueba-event-generator/cmd/app"
 	"github.com/nashabanov/ueba-event-generator/internal/config"
+	"github.com/nashabanov/ueba-event-generator/internal/logger"
+	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
+	"github.com/nashabanov/ueba-event-generator/internal/pipeline/factory"
 )
 
 // Версионная информация (заполняется при сборке)
@@ -16,37 +19,6 @@ var (
 	buildTime = "unknown" // Время сборки
 	gitCommit = "unknown" // Git коммит
 )
-
-func main() {
-	flags := parseComandLineFlags()
-
-	// Обрабатываем специальные флаги
-	if flags.showVersion {
-		showVersionInfo()
-		return
-	}
-	if flags.showHelp {
-		showHelpInfo()
-		return
-	}
-
-	// Загружаем конфигурацию
-	cfg, err := loadConfiguration(flags)
-	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
-	}
-
-	printConfigInfo(cfg, flags)
-
-	// Создаем и запускаем приложение
-	app := NewApplication(cfg)
-	if err := app.Run(); err != nil {
-		log.Fatalf("Application failed: %v", err)
-	}
-
-	fmt.Println("Configuration loaded successfully!")
-	fmt.Println("Next step: create pipeline...")
-}
 
 type CLIFlags struct {
 	// Системные флаги
@@ -60,6 +32,50 @@ type CLIFlags struct {
 	protocol     string
 	logLevel     string
 	duration     time.Duration
+}
+
+func Run() {
+	flags := parseComandLineFlags()
+
+	// Обрабатываем специальные флаги
+	if flags.showVersion {
+		showVersionInfo()
+		return
+	}
+	if flags.showHelp {
+		showHelpInfo()
+		return
+	}
+
+	log := logger.NewStdLogger()
+
+	// Загружаем конфигурацию
+	cfg, err := loadConfiguration(flags)
+	if err != nil {
+		log.Error("Failed to load configuration: %v", err)
+	}
+
+	printConfigInfo(cfg, flags)
+
+	// Создаем pipeline
+	factory := factory.NewPipelineFactory(cfg)
+	pipeline, err := factory.CreatePipeline()
+	if err != nil {
+		log.Error("Failed to build pipeline: %v", err)
+	}
+
+	// Создаем monitoring
+	monitoring := monitoring.NewMonitor(10*time.Second, log)
+
+	// Создаем и запускаем приложение
+	app := app.NewApplication(cfg, pipeline, monitoring, log)
+
+	if err := app.Run(); err != nil {
+		log.Error("Application failed: %v", err)
+	}
+
+	fmt.Println("Configuration loaded successfully!")
+	fmt.Println("Next step: create pipeline...")
 }
 
 // parseCommandLineFlags парсит все флаги
@@ -106,14 +122,20 @@ func loadConfiguration(flags *CLIFlags) (*config.Config, error) {
 	}
 
 	if flags.destinations != "" {
-		destinations := strings.Split(flags.destinations, ",")
-		for i, dest := range destinations {
-			destinations[i] = strings.TrimSpace(dest)
+		parts := strings.Split(flags.destinations, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
 		}
-		configFlags.Destinations = destinations
+		configFlags.Destinations = parts
 	}
 
-	return config.LoadConfig(flags.configFile, configFlags)
+	service := config.NewConfigService(flags.configFile, configFlags)
+
+	if err := service.Load(); err != nil {
+		return nil, err
+	}
+
+	return service.GetConfig(), nil
 }
 
 // printConfigInfo выводит информацию о загруженной конфигурации
