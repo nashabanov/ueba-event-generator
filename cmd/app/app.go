@@ -18,6 +18,7 @@ type Application struct {
 	pipeline coordinator.Pipeline
 	monitor  monitoring.Monitor
 	logger   logger.Logger
+	cancel   context.CancelFunc
 }
 
 // NewApplication создает новое приложение
@@ -33,6 +34,7 @@ func NewApplication(cfg *config.Config, p coordinator.Pipeline, m monitoring.Mon
 // Run запускает приложение и управляет жизненным циклом
 func (app *Application) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
+	app.cancel = cancel
 	defer cancel()
 
 	if app.config.Generator.Duration > 0 {
@@ -41,7 +43,10 @@ func (app *Application) Run() error {
 		defer cancel()
 	}
 
-	app.setupSignalHandling(cancel)
+	app.SetupSignalHandling(cancel)
+
+	// Канал для ошибок пайплайна
+	errCh := make(chan error, 1)
 
 	go app.monitor.Start(ctx)
 
@@ -50,28 +55,43 @@ func (app *Application) Run() error {
 	go func() {
 		if err := app.pipeline.Start(ctx); err != nil {
 			app.logger.Error("Pipeline error: %v", err)
+			errCh <- err
 			cancel()
 		}
 	}()
 
-	<-ctx.Done()
+	var runErr error
+
+	select {
+	case <-ctx.Done():
+		// если просто таймаут или сигнал
+	case err := <-errCh:
+		// если пайплайн вернул ошибку
+		runErr = err
+	}
 
 	app.logger.Info("Stopping pipeline...")
 	if err := app.pipeline.Stop(); err != nil {
 		app.logger.Error("Error stopping pipeline: %v", err)
+		if runErr == nil {
+			runErr = err
+		}
 	}
 
 	app.logger.Info("Stopping monitor...")
 	if err := app.monitor.Stop(); err != nil {
 		app.logger.Error("Failed to stop monitor: %v", err)
+		if runErr == nil {
+			runErr = err
+		}
 	}
 
 	app.logger.Info("Application stopped successfully")
-	return nil
+	return runErr
 }
 
-// setupSignalHandling настраивает обработку системных сигналов
-func (app *Application) setupSignalHandling(cancel context.CancelFunc) {
+// SetupSignalHandling настраивает обработку системных сигналов
+func (app *Application) SetupSignalHandling(cancel context.CancelFunc) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
@@ -80,4 +100,10 @@ func (app *Application) setupSignalHandling(cancel context.CancelFunc) {
 		app.logger.Info("Received signal: %v, initiating graceful shutdown...", sig)
 		cancel()
 	}()
+}
+
+func (app *Application) Stop() {
+	if app.cancel != nil {
+		app.cancel()
+	}
 }

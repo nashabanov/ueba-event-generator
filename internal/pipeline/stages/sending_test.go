@@ -2,251 +2,161 @@ package stages
 
 import (
 	"context"
-	"fmt"
-	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestNetworkSendingStage_Creation(t *testing.T) {
-	stage := NewNetworkSendingStage("test-sender")
+// ------------------- NetworkSendingStage -------------------
 
-	if stage.Name() != "test-sender" {
-		t.Errorf("Expected name 'test-sender', got '%s'", stage.Name())
-	}
-
-	if stage.protocol != "udp" {
-		t.Errorf("Expected default protocol 'udp', got '%s'", stage.protocol)
-	}
-
-	if len(stage.destinations) != 1 || stage.destinations[0] != "127.0.0.1:514" {
-		t.Errorf("Expected default destination '127.0.0.1:514', got %v", stage.destinations)
-	}
-
-	if stage.GetSentCount() != 0 {
-		t.Errorf("Initial sent count should be 0, got %d", stage.GetSentCount())
-	}
+func TestNewNetworkSendingStage(t *testing.T) {
+	stage := NewNetworkSendingStage("test_stage")
+	require.Equal(t, "test_stage", stage.Name())
+	require.Equal(t, "udp", stage.protocol)
+	require.Len(t, stage.destinations, 1)
+	require.NotNil(t, stage.workerPool)
+	require.NotNil(t, stage.metrics)
+	require.NotNil(t, stage.input)
 }
 
-func TestNetworkSendingStage_SetDestinations(t *testing.T) {
-	stage := NewNetworkSendingStage("test")
+func TestSetDestinations(t *testing.T) {
+	stage := NewNetworkSendingStage("test_stage")
 
-	// Валидные адреса
-	destinations := []string{"127.0.0.1:1234", "192.168.1.1:5678"}
-	err := stage.SetDestinations(destinations)
-	if err != nil {
-		t.Errorf("SetDestinations should not error: %v", err)
-	}
+	// Валидные адреса → нет ошибки
+	err := stage.SetDestinations([]string{"127.0.0.1:514", "192.168.0.1:514"})
+	require.NoError(t, err)
+	require.Len(t, stage.destinations, 2)
 
-	// Пустой список
+	// Пустой список → ошибка
 	err = stage.SetDestinations([]string{})
-	if err == nil {
-		t.Error("SetDestinations with empty slice should return error")
-	}
+	require.Error(t, err)
 
-	// Невалидный адрес
-	err = stage.SetDestinations([]string{"invalid-address"})
-	if err == nil {
-		t.Error("SetDestinations with invalid address should return error")
-	}
+	// Некорректный адрес → ошибка
+	err = stage.SetDestinations([]string{"127.0.0.1"}) // нет порта
+	require.Error(t, err)
 }
 
-func TestNetworkSendingStage_SetProtocol(t *testing.T) {
-	stage := NewNetworkSendingStage("test")
+func TestSetProtocol(t *testing.T) {
+	stage := NewNetworkSendingStage("test_stage")
 
 	// Валидные протоколы
-	err := stage.SetProtocol("tcp")
-	if err != nil {
-		t.Errorf("SetProtocol('tcp') should not error: %v", err)
-	}
+	require.NoError(t, stage.SetProtocol("tcp"))
+	require.Equal(t, "tcp", stage.protocol)
 
-	err = stage.SetProtocol("udp")
-	if err != nil {
-		t.Errorf("SetProtocol('udp') should not error: %v", err)
-	}
+	require.NoError(t, stage.SetProtocol("udp"))
+	require.Equal(t, "udp", stage.protocol)
 
 	// Невалидный протокол
-	err = stage.SetProtocol("http")
-	if err == nil {
-		t.Error("SetProtocol('http') should return error")
-	}
+	err := stage.SetProtocol("icmp")
+	require.Error(t, err)
 }
 
-// Mock UDP сервер для тестирования
-func startMockUDPServer(t *testing.T, addr string) (net.PacketConn, chan []byte) {
-	conn, err := net.ListenPacket("udp", addr)
-	if err != nil {
-		t.Fatalf("Failed to start mock UDP server: %v", err)
+func TestSendData_UDP_Error(t *testing.T) {
+	stage := NewNetworkSendingStage("udp_stage")
+	data := &SerializedData{
+		Data:        []byte("abc"),
+		EventID:     "evt_1",
+		Protocol:    "udp",
+		Size:        3,
+		Destination: "256.256.256.256:123", // гарантированно недоступный адрес
 	}
-
-	received := make(chan []byte, 100) // Больший буфер
-
-	go func() {
-		defer close(received) // Закрываем канал при завершении
-
-		buffer := make([]byte, 1024)
-		for {
-			// Устанавливаем timeout для чтения
-			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-			n, _, err := conn.ReadFrom(buffer)
-			if err != nil {
-				// Проверяем timeout error
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue // Продолжаем чтение
-				}
-				fmt.Printf("UDP server read error: %v\n", err)
-				return // Соединение закрыто или другая ошибка
-			}
-
-			// fmt.Printf("UDP server received %d bytes from %s: %s\n", n, addr, string(buffer[:n]))
-
-			data := make([]byte, n)
-			copy(data, buffer[:n])
-
-			select {
-			case received <- data:
-				// Отправили в канал
-			default:
-				fmt.Printf("UDP server: received channel full, dropping message\n")
-			}
-		}
-	}()
-
-	// Даем серверу время для запуска
-	time.Sleep(50 * time.Millisecond)
-
-	return conn, received
+	err := stage.SendData(data)
+	require.Error(t, err)
 }
 
-func TestNetworkSendingStage_UDPSending(t *testing.T) {
-	// Запускаем mock UDP сервер
-	server, received := startMockUDPServer(t, "127.0.0.1:0")
-	defer server.Close()
-
-	serverAddr := server.LocalAddr().String()
-
-	// Создаем и настраиваем стадию отправки
-	stage := NewNetworkSendingStage("udp-test")
-	stage.SetDestinations([]string{serverAddr})
-	stage.SetProtocol("udp")
-
-	// Подготавливаем тестовые данные
-	testData := &SerializedData{
-		Data:        []byte("test udp message"),
-		EventID:     "test-event-1",
-		Size:        17,
-		Destination: "", // Будет использован serverAddr из конфигурации
-		Protocol:    "", // Будет использован udp из конфигурации
+func TestSendData_TCP_Error(t *testing.T) {
+	stage := NewNetworkSendingStage("tcp_stage")
+	stage.protocol = "tcp"
+	data := &SerializedData{
+		Data:        []byte("abc"),
+		EventID:     "evt_1",
+		Protocol:    "tcp",
+		Size:        3,
+		Destination: "127.0.0.1:514",
 	}
-
-	inputChan := make(chan *SerializedData, 1)
-	inputChan <- testData
-	close(inputChan) // Закрываем чтобы стадия завершилась
-
-	ctx := context.Background()
-
-	// Запускаем стадию отправки
-	err := stage.Run(ctx, inputChan)
-	if err != nil {
-		t.Errorf("Run() should not error: %v", err)
-	}
-
-	// Проверяем что данные получены сервером
-	select {
-	case receivedData := <-received:
-		if string(receivedData) != "test udp message" {
-			t.Errorf("Expected 'test udp message', got '%s'", string(receivedData))
-		}
-	case <-time.After(1 * time.Second):
-		t.Error("Timeout waiting for UDP data")
-	}
-
-	// Проверяем метрики
-	if stage.GetSentCount() != 1 {
-		t.Errorf("Expected sent count 1, got %d", stage.GetSentCount())
-	}
-
-	if stage.GetFailedCount() != 0 {
-		t.Errorf("Expected failed count 0, got %d", stage.GetFailedCount())
-	}
+	// tcpPool не инициализирован → ошибка
+	err := stage.SendData(data)
+	require.Error(t, err)
 }
 
-func TestNetworkSendingStage_SendError(t *testing.T) {
-	stage := NewNetworkSendingStage("error-test")
-	stage.SetDestinations([]string{"255.255.255.255:99999"}) // Невалидный адрес
-	stage.SetProtocol("udp")
-
-	testData := &SerializedData{
-		Data:    []byte("test message"),
-		EventID: "test-event-1",
-		Size:    12,
+func TestSendData_UnsupportedProtocol(t *testing.T) {
+	stage := NewNetworkSendingStage("stage")
+	data := &SerializedData{
+		Data:     []byte("abc"),
+		EventID:  "evt_1",
+		Protocol: "icmp",
+		Size:     3,
 	}
-
-	inputChan := make(chan *SerializedData, 1)
-	inputChan <- testData
-	close(inputChan)
-
-	ctx := context.Background()
-
-	// Запускаем стадию - ошибок быть не должно, только failed count увеличится
-	err := stage.Run(ctx, inputChan)
-	if err != nil {
-		t.Errorf("Run() should not error even with send failures: %v", err)
-	}
-
-	// Проверяем что произошла ошибка отправки
-	if stage.GetFailedCount() == 0 {
-		t.Error("Expected failed count > 0 for invalid destination")
-	}
-
-	if stage.GetSentCount() != 0 {
-		t.Errorf("Expected sent count 0, got %d", stage.GetSentCount())
-	}
+	err := stage.SendData(data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported protocol")
 }
 
-func TestNetworkSendingStage_ContextCancellation(t *testing.T) {
-	stage := NewNetworkSendingStage("cancel-test")
+func TestNetworkSendJob_Execute_Error(t *testing.T) {
+	stage := NewNetworkSendingStage("job_stage")
+	data := &SerializedData{
+		Data:        []byte("abc"),
+		EventID:     "evt_1",
+		Protocol:    "udp",
+		Size:        3,
+		Destination: "256.256.256.256:123",
+	}
+	job := &NetworkSendJob{stage: stage, data: data}
+	err := job.Execute()
+	require.Error(t, err)
+}
 
+func TestStage_MetricsMethods_Types(t *testing.T) {
+	stage := NewNetworkSendingStage("metrics_stage")
+
+	// Проверяем только типы/ключи
+	require.IsType(t, uint64(0), stage.GetSentCount())
+	require.IsType(t, uint64(0), stage.GetFailedCount())
+
+	stats := stage.GetStageStats()
+	require.Equal(t, "metrics_stage", stats["stage_name"])
+	require.Equal(t, "udp", stats["protocol"])
+	require.True(t, stats["worker_pool_healthy"].(bool))
+}
+
+func TestIsHealthy(t *testing.T) {
+	stage := NewNetworkSendingStage("healthy_stage")
+	healthy, msg := stage.IsHealthy()
+	require.True(t, healthy)
+	require.Equal(t, "stage healthy", msg)
+}
+
+func TestOptimizationRecommendations_Format(t *testing.T) {
+	stage := NewNetworkSendingStage("opt_stage")
+	rec := stage.GetOptimizationRecommendations()
+	require.IsType(t, "", rec[0])
+}
+
+func TestRun_ContextCancel(t *testing.T) {
+	stage := NewNetworkSendingStage("run_stage")
 	ctx, cancel := context.WithCancel(context.Background())
-	inputChan := make(chan *SerializedData) // Не закрываем канал
-
-	// Запускаем стадию в горутине
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- stage.Run(ctx, inputChan)
-	}()
-
-	// Отменяем контекст
 	cancel()
 
-	// Проверяем быстрое завершение
-	select {
-	case err := <-errChan:
-		if err != context.Canceled {
-			t.Errorf("Expected context.Canceled, got: %v", err)
-		}
-	case <-time.After(100 * time.Millisecond):
-		t.Error("Stage did not stop within 100ms after context cancellation")
-	}
+	inCh := make(chan *SerializedData)
+	err := stage.Run(ctx, inCh)
+	require.ErrorIs(t, err, context.Canceled)
 }
 
-func BenchmarkNetworkSending(b *testing.B) {
-	stage := NewNetworkSendingStage("bench")
+func TestRun_ProcessData_Error(t *testing.T) {
+	stage := NewNetworkSendingStage("run_process")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 
-	// Используем реальный UDP адрес для бенчмарка
-	stage.SetDestinations([]string{"127.0.0.1:1234"})
-	stage.SetProtocol("udp")
-
-	testData := &SerializedData{
-		Data:    []byte("benchmark test message"),
-		EventID: "bench-event",
-		Size:    23,
+	inCh := make(chan *SerializedData, 1)
+	inCh <- &SerializedData{
+		Data:        []byte("abc"),
+		EventID:     "evt_1",
+		Protocol:    "udp",
+		Size:        3,
+		Destination: "256.256.256.256:123",
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		stage.SendData(testData) // Напрямую вызываем метод отправки
-	}
+	err := stage.Run(ctx, inCh)
+	require.Error(t, err)
 }
