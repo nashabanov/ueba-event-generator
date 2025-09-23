@@ -38,8 +38,12 @@ func main() {
 
 	printConfigInfo(cfg, flags)
 
-	// Создаем и запускаем приложение
-	app := NewApplication(cfg)
+	// Создаем приложение
+	app, err := NewApplication(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create application: %v", err)
+	}
+	// Запускаем приложение
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application failed: %v", err)
 	}
@@ -106,14 +110,20 @@ func loadConfiguration(flags *CLIFlags) (*config.Config, error) {
 	}
 
 	if flags.destinations != "" {
-		destinations := strings.Split(flags.destinations, ",")
-		for i, dest := range destinations {
-			destinations[i] = strings.TrimSpace(dest)
+		parts := strings.Split(flags.destinations, ",")
+		for i := range parts {
+			parts[i] = strings.TrimSpace(parts[i])
 		}
-		configFlags.Destinations = destinations
+		configFlags.Destinations = parts
 	}
 
-	return config.LoadConfig(flags.configFile, configFlags)
+	service := config.NewConfigService(flags.configFile, configFlags)
+
+	if err := service.Load(); err != nil {
+		return nil, err
+	}
+
+	return service.GetConfig(), nil
 }
 
 // printConfigInfo выводит информацию о загруженной конфигурации
