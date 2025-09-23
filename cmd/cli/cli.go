@@ -3,12 +3,12 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/nashabanov/ueba-event-generator/cmd/app"
 	"github.com/nashabanov/ueba-event-generator/internal/config"
+	"github.com/nashabanov/ueba-event-generator/internal/logger"
 	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
 	"github.com/nashabanov/ueba-event-generator/internal/pipeline/factory"
 )
@@ -47,10 +47,12 @@ func Run() {
 		return
 	}
 
+	log := logger.NewStdLogger()
+
 	// Загружаем конфигурацию
 	cfg, err := loadConfiguration(flags)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Error("Failed to load configuration: %v", err)
 	}
 
 	printConfigInfo(cfg, flags)
@@ -59,17 +61,17 @@ func Run() {
 	factory := factory.NewPipelineFactory(cfg)
 	pipeline, err := factory.CreatePipeline()
 	if err != nil {
-		log.Fatalf("Failed to build pipeline: %v", err)
+		log.Error("Failed to build pipeline: %v", err)
 	}
 
 	// Создаем monitoring
-	monitoring := monitoring.NewMonitor(10 * time.Second)
+	monitoring := monitoring.NewMonitor(10*time.Second, log)
 
 	// Создаем и запускаем приложение
-	app := app.NewApplication(cfg, pipeline, monitoring)
+	app := app.NewApplication(cfg, pipeline, monitoring, log)
 
 	if err := app.Run(); err != nil {
-		log.Fatalf("Application failed: %v", err)
+		log.Error("Application failed: %v", err)
 	}
 
 	fmt.Println("Configuration loaded successfully!")

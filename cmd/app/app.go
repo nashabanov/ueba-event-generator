@@ -2,12 +2,12 @@ package app
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/nashabanov/ueba-event-generator/internal/config"
+	"github.com/nashabanov/ueba-event-generator/internal/logger"
 	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
 	"github.com/nashabanov/ueba-event-generator/internal/pipeline/coordinator"
 )
@@ -17,14 +17,16 @@ type Application struct {
 	config   *config.Config
 	pipeline coordinator.Pipeline
 	monitor  monitoring.Monitor
+	logger   logger.Logger
 }
 
 // NewApplication создает новое приложение
-func NewApplication(cfg *config.Config, p coordinator.Pipeline, m monitoring.Monitor) *Application {
+func NewApplication(cfg *config.Config, p coordinator.Pipeline, m monitoring.Monitor, log logger.Logger) *Application {
 	return &Application{
 		config:   cfg,
 		pipeline: p,
 		monitor:  m,
+		logger:   log,
 	}
 }
 
@@ -34,7 +36,7 @@ func (app *Application) Run() error {
 	defer cancel()
 
 	if app.config.Generator.Duration > 0 {
-		log.Printf("Application will run for: %v", app.config.Generator.Duration)
+		app.logger.Info("Application will run for: %v", app.config.Generator.Duration)
 		ctx, cancel = context.WithTimeout(ctx, app.config.Generator.Duration)
 		defer cancel()
 	}
@@ -43,28 +45,28 @@ func (app *Application) Run() error {
 
 	go app.monitor.Start(ctx)
 
-	log.Printf("Starting pipeline...")
+	app.logger.Info("Starting pipeline...")
 
 	go func() {
 		if err := app.pipeline.Start(ctx); err != nil {
-			log.Printf("Pipeline error: %v", err)
+			app.logger.Error("Pipeline error: %v", err)
 			cancel()
 		}
 	}()
 
 	<-ctx.Done()
 
-	log.Println("Stopping pipeline...")
+	app.logger.Info("Stopping pipeline...")
 	if err := app.pipeline.Stop(); err != nil {
-		log.Printf("Error stopping pipeline: %v", err)
+		app.logger.Error("Error stopping pipeline: %v", err)
 	}
 
-	log.Println("Stopping monitor...")
+	app.logger.Info("Stopping monitor...")
 	if err := app.monitor.Stop(); err != nil {
-		log.Printf("Failed to stop monitor: %v", err)
+		app.logger.Error("Failed to stop monitor: %v", err)
 	}
 
-	log.Println("Application stopped successfully")
+	app.logger.Info("Application stopped successfully")
 	return nil
 }
 
@@ -75,7 +77,7 @@ func (app *Application) setupSignalHandling(cancel context.CancelFunc) {
 
 	go func() {
 		sig := <-sigChan
-		log.Printf("Received signal: %v, initiating graceful shutdown...", sig)
+		app.logger.Info("Received signal: %v, initiating graceful shutdown...", sig)
 		cancel()
 	}()
 }
