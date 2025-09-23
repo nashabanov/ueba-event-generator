@@ -34,14 +34,14 @@ func NewTCPConnectionPool(destination string, poolSize int) (*TCPConnectionPool,
 		connections: make([]*TCPConnection, poolSize),
 	}
 
-	log.Printf("🔧 Creating TCP connection pool: %d connections to %s", poolSize, destination)
+	log.Printf("Creating TCP connection pool: %d connections to %s", poolSize, destination)
 
 	// Создаем все соединения сразу
 	successCount := 0
 	for i := 0; i < poolSize; i++ {
 		conn, err := pool.createConnection(i)
 		if err != nil {
-			log.Printf("❌ Failed to create connection %d: %v", i, err)
+			log.Printf("Failed to create connection %d: %v", i, err)
 			continue
 		}
 		pool.connections[i] = conn
@@ -52,7 +52,7 @@ func NewTCPConnectionPool(destination string, poolSize int) (*TCPConnectionPool,
 		return nil, fmt.Errorf("failed to create any connections")
 	}
 
-	log.Printf("✅ TCP pool created: %d/%d connections successful", successCount, poolSize)
+	log.Printf("TCP pool created: %d/%d connections successful", successCount, poolSize)
 	return pool, nil
 }
 
@@ -121,7 +121,7 @@ func (conn *TCPConnection) MarkUnhealthy() {
 			metrics.GetGlobalMetrics().DecrementConnections()
 			metrics.GetGlobalMetrics().IncrementReconnects()
 		}
-		log.Printf("❌ TCP connection %d marked as unhealthy", conn.id)
+		log.Printf("TCP connection %d marked as unhealthy", conn.id)
 	}
 }
 
@@ -148,12 +148,12 @@ func (pool *TCPConnectionPool) tryRecreateConnection() *TCPConnection {
 		if conn == nil || !conn.IsHealthy() {
 			newConn, err := pool.createConnection(i)
 			if err != nil {
-				log.Printf("❌ Failed to recreate connection %d: %v", i, err)
+				log.Printf("Failed to recreate connection %d: %v", i, err)
 				continue
 			}
 
 			pool.connections[i] = newConn
-			log.Printf("✅ Recreated TCP connection %d", i)
+			log.Printf("Recreated TCP connection %d", i)
 			return newConn
 		}
 	}
@@ -169,11 +169,11 @@ func (pool *TCPConnectionPool) Close() {
 		if conn != nil && conn.conn != nil {
 			conn.conn.Close()
 			metrics.GetGlobalMetrics().DecrementConnections()
-			log.Printf("🔒 Closed TCP connection %d", i)
+			log.Printf("Closed TCP connection %d", i)
 		}
 	}
 
-	log.Printf("🔒 TCP connection pool closed")
+	log.Printf("TCP connection pool closed")
 }
 
 func (pool *TCPConnectionPool) GetStats() (total, healthy int) {

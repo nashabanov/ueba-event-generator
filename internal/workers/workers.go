@@ -2,7 +2,7 @@ package workers
 
 import (
 	"context"
-	"log"
+	// "log"
 	"runtime"
 	"sync"
 	"time"
@@ -34,7 +34,7 @@ func NewWorkerPool(workerCount int, queueSize int) *WorkerPool {
 		workerCount: workerCount,
 		jobQueue:    make(chan Job, queueSize), // Buffered channel
 		quit:        make(chan bool),
-		poolType:    "generic", // ✅ По умолчанию
+		poolType:    "generic",
 	}
 }
 
@@ -57,14 +57,14 @@ func (wp *WorkerPool) worker(id int, ctx context.Context) {
 	globalMetrics.IncrementActiveWorkers()
 	defer globalMetrics.DecrementActiveWorkers()
 
-	log.Printf("🚀 Worker %d запущен", id)
+	// log.Printf("🚀 Worker %d запущен", id)
 
-	poolType := "unknown"
-	if wp.poolType != "" {
-		poolType = wp.poolType
-	}
+	// poolType := "unknown"
+	// if wp.poolType != "" {
+	// 	poolType = wp.poolType
+	// }
 
-	log.Printf("🚀 Worker %s-%d запущен", poolType, id)
+	// log.Printf("🚀 Worker %s-%d запущен", poolType, id)
 
 	for {
 		select {
@@ -73,7 +73,7 @@ func (wp *WorkerPool) worker(id int, ctx context.Context) {
 				startTime := time.Now()
 
 				if err := job.Execute(); err != nil {
-					log.Printf("❌ Worker %d: ошибка задачи: %v", id, err)
+					// log.Printf("❌ Worker %d: ошибка задачи: %v", id, err)
 				} else {
 					globalMetrics.IncrementCompletedJobs()
 				}
@@ -83,11 +83,11 @@ func (wp *WorkerPool) worker(id int, ctx context.Context) {
 			}
 
 		case <-wp.quit:
-			log.Printf("🛑 Worker %s-%d: останавливаюсь", poolType, id)
+			// log.Printf("🛑 Worker %s-%d: останавливаюсь", poolType, id)
 			return
 
 		case <-ctx.Done():
-			log.Printf("⏱️ Worker %s-%d: context отменен", poolType, id)
+			// log.Printf("⏱️ Worker %s-%d: context отменен", poolType, id)
 			return
 		}
 	}

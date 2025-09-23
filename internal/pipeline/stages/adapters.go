@@ -27,7 +27,6 @@ func (a *GenerationStageAdapter) Name() string {
 	return a.generationStage.Name()
 }
 
-// GenerationStageAdapter - ИСПРАВЛЕННАЯ ВЕРСИЯ
 func (a *GenerationStageAdapter) Run(ctx context.Context, in <-chan event.Event, out chan<- event.Event) error {
 	serializedChan := make(chan *SerializedData, a.bufferSize)
 
@@ -51,7 +50,6 @@ func (a *GenerationStageAdapter) Run(ctx context.Context, in <-chan event.Event,
 
 			select {
 			case out <- wrappedEvent:
-				// fmt.Printf("✅ GenerationAdapter: sent to pipeline\n")
 			case <-ctx.Done():
 				return ctx.Err()
 			}
@@ -111,7 +109,6 @@ func (a *SendingStageAdapter) Run(ctx context.Context, in <-chan event.Event, ou
 
 			select {
 			case serializedChan <- serializedData:
-				// fmt.Printf("✅ SendingAdapter: sent to SendingStage\n")
 			case <-ctx.Done():
 				return ctx.Err()
 			}

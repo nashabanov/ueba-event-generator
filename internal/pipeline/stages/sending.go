@@ -31,15 +31,10 @@ type NetworkSendingStage struct {
 	protocol     string   // "udp" или "tcp"
 	timeout      time.Duration
 
-	// ✅ НОВАЯ архитектура - заменяем старые поля
-	tcpPool    *network.TCPConnectionPool // Connection pool для TCP
+	tcpPool    *network.TCPConnectionPool
 	workerPool *workers.WorkerPool
 	metrics    *metrics.PerformanceMetrics
 	input      chan event.Event
-
-	// ✅ УБИРАЕМ старые поля - теперь управление соединениями в pool
-	// connections map[string]net.Conn  // ❌ УДАЛЕНО
-	// connMutex   sync.RWMutex         // ❌ УДАЛЕНО
 }
 
 func NewNetworkSendingStage(name string) *NetworkSendingStage {
@@ -50,7 +45,7 @@ func NewNetworkSendingStage(name string) *NetworkSendingStage {
 		destinations: []string{"127.0.0.1:514"},
 		protocol:     "udp",
 		timeout:      5 * time.Second,
-		workerPool:   workerPool, // ✅ ИСПРАВЛЯЕМ дублирование
+		workerPool:   workerPool,
 		metrics:      metrics.NewPerformanceMetrics(),
 		input:        make(chan event.Event, 1000),
 		// tcpPool будет создан в Run() когда узнаем точный протокол
@@ -61,14 +56,9 @@ func (s *NetworkSendingStage) Name() string {
 	return s.name
 }
 
-// ✅ ОБНОВЛЕННЫЙ Run с инициализацией TCP pool
 func (s *NetworkSendingStage) Run(ctx context.Context, in <-chan *SerializedData) error {
-	fmt.Printf("🚀 Sending stage '%s' started: protocol=%s, destinations=%v with Worker Pool\n",
-		s.name, s.protocol, s.destinations)
-
-	// ✅ СОЗДАЕМ TCP POOL если протокол TCP
 	if s.protocol == "tcp" && len(s.destinations) > 0 {
-		poolSize := 12 // 12 соединений для 180k EPS (12 * 15k)
+		poolSize := 12
 
 		tcpPool, err := network.NewTCPConnectionPool(s.destinations[0], poolSize)
 		if err != nil {
@@ -88,12 +78,11 @@ func (s *NetworkSendingStage) Run(ctx context.Context, in <-chan *SerializedData
 		case serializedData, ok := <-in:
 			if !ok {
 				_, sent, failed, _ := metrics.GetGlobalMetrics().GetStats()
-				fmt.Printf("🛑 Sending stage '%s' stopped. Sent: %d, Failed: %d\n",
+				fmt.Printf("Sending stage '%s' stopped. Sent: %d, Failed: %d\n",
 					s.name, sent, failed)
 				return nil
 			}
 
-			// Создаем задачу для Worker Pool
 			job := &NetworkSendJob{
 				stage: s,
 				data:  serializedData,
@@ -101,12 +90,12 @@ func (s *NetworkSendingStage) Run(ctx context.Context, in <-chan *SerializedData
 
 			if !s.workerPool.Submit(job) {
 				metrics.GetGlobalMetrics().IncrementDropped()
-				fmt.Printf("⚠️ Network worker pool queue full, dropping send\n")
+				fmt.Printf("Network worker pool queue full, dropping send\n")
 			}
 
 		case <-ctx.Done():
 			_, sent, failed, _ := metrics.GetGlobalMetrics().GetStats()
-			fmt.Printf("🛑 Sending stage '%s' cancelled. Sent: %d, Failed: %d\n",
+			fmt.Printf("Sending stage '%s' cancelled. Sent: %d, Failed: %d\n",
 				s.name, sent, failed)
 			return ctx.Err()
 		}
@@ -157,11 +146,9 @@ func (s *NetworkSendingStage) sendUDP(destination string, data []byte) error {
 	}
 	defer func() {
 		conn.Close()
-		// ✅ Для UDP "соединение" кратковременное, но все равно считаем
 		globalMetrics.DecrementConnections()
 	}()
 
-	// ✅ Считаем временное UDP "соединение"
 	globalMetrics.IncrementConnections()
 
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
@@ -175,31 +162,25 @@ func (s *NetworkSendingStage) sendUDP(destination string, data []byte) error {
 	return nil
 }
 
-// ✅ ПОЛНОСТЬЮ ОБНОВЛЕННЫЙ sendTCP с использованием connection pool
 func (s *NetworkSendingStage) sendTCP(destination string, data []byte) error {
-	// Проверяем что TCP pool инициализирован
 	if s.tcpPool == nil {
 		return fmt.Errorf("TCP connection pool not initialized for destination %s", destination)
 	}
 
 	globalMetrics := metrics.GetGlobalMetrics()
 
-	// ✅ ПОЛУЧАЕМ соединение из pool
 	conn := s.tcpPool.GetConnection()
 	if conn == nil {
 		globalMetrics.IncrementTimeouts()
 		return fmt.Errorf("no healthy TCP connections available to %s", destination)
 	}
 
-	// ✅ ДОБАВЛЯЕМ перенос строки для разделения событий
 	dataWithNewline := append(data, '\n')
 
-	// ✅ ОТПРАВЛЯЕМ данные через connection pool
 	written := 0
 	for written < len(dataWithNewline) {
 		n, err := conn.Write(dataWithNewline[written:])
 		if err != nil {
-			// ✅ CONNECTION POOL автоматически обработает ошибку
 			conn.MarkUnhealthy()
 			globalMetrics.IncrementTimeouts()
 			return fmt.Errorf("failed to write TCP data to %s: %w", destination, err)
@@ -210,16 +191,14 @@ func (s *NetworkSendingStage) sendTCP(destination string, data []byte) error {
 	return nil
 }
 
-// ✅ ОБНОВЛЕННЫЙ closeConnections для работы с pool
 func (s *NetworkSendingStage) closeConnections() {
 	if s.tcpPool != nil {
 		s.tcpPool.Close()
-		log.Printf("🔒 TCP connection pool closed")
+		log.Printf("TCP connection pool closed")
 		s.tcpPool = nil
 	}
 }
 
-// ✅ НОВЫЙ метод для получения статистики connection pool
 func (s *NetworkSendingStage) GetConnectionStats() (total, healthy int) {
 	if s.tcpPool != nil {
 		return s.tcpPool.GetStats()
@@ -227,7 +206,6 @@ func (s *NetworkSendingStage) GetConnectionStats() (total, healthy int) {
 	return 0, 0
 }
 
-// ✅ НОВЫЙ метод для получения детальной информации о pool
 func (s *NetworkSendingStage) GetConnectionPoolInfo() string {
 	if s.tcpPool == nil {
 		return "TCP pool: not initialized"
@@ -243,14 +221,12 @@ func (s *NetworkSendingStage) SetDestinations(destinations []string) error {
 		return fmt.Errorf("destinations cannot be empty")
 	}
 
-	// Валидируем адреса
 	for _, dest := range destinations {
 		if _, _, err := net.SplitHostPort(dest); err != nil {
 			return fmt.Errorf("invalid destination address %s: %w", dest, err)
 		}
 	}
 
-	// ✅ ЕСЛИ изменили destination и TCP pool активен - нужно пересоздать
 	if s.tcpPool != nil && len(destinations) > 0 && destinations[0] != s.destinations[0] {
 		log.Printf("🔄 Destination changed from %s to %s, TCP pool will be recreated on next run",
 			s.destinations[0], destinations[0])
@@ -276,7 +252,6 @@ func (s *NetworkSendingStage) SetProtocol(protocol string) error {
 	return nil
 }
 
-// ✅ НОВЫЙ метод для изменения размера pool в runtime (advanced)
 func (s *NetworkSendingStage) ResizeConnectionPool(newSize int) error {
 	if s.tcpPool == nil {
 		return fmt.Errorf("TCP connection pool not initialized")
@@ -286,7 +261,6 @@ func (s *NetworkSendingStage) ResizeConnectionPool(newSize int) error {
 		return fmt.Errorf("invalid pool size %d, must be between 1 and 50", newSize)
 	}
 
-	// Пока что просто логируем - полноценная реализация resize сложна
 	total, healthy := s.tcpPool.GetStats()
 	log.Printf("🔧 TCP pool resize requested: current=%d healthy/%d total, requested=%d",
 		healthy, total, newSize)
@@ -295,19 +269,16 @@ func (s *NetworkSendingStage) ResizeConnectionPool(newSize int) error {
 	return fmt.Errorf("pool resizing not implemented - restart application with new configuration")
 }
 
-// ✅ НОВЫЙ метод для принудительного восстановления соединений
 func (s *NetworkSendingStage) RecreateUnhealthyConnections() int {
 	if s.tcpPool == nil {
 		return 0
 	}
 
-	// Эта логика будет в connection pool - пока что заглушка
 	total, healthy := s.tcpPool.GetStats()
 	unhealthy := total - healthy
 
 	if unhealthy > 0 {
 		log.Printf("🔄 Attempting to recreate %d unhealthy connections", unhealthy)
-		// В реальной реализации pool сам будет пересоздавать соединения
 		return unhealthy
 	}
 
@@ -325,7 +296,6 @@ func (s *NetworkSendingStage) GetFailedCount() uint64 {
 	return failed
 }
 
-// ✅ НОВЫЙ метод для получения полной статистики stage
 func (s *NetworkSendingStage) GetStageStats() map[string]interface{} {
 	_, sent, failed, dropped := metrics.GetGlobalMetrics().GetStats()
 
@@ -339,7 +309,6 @@ func (s *NetworkSendingStage) GetStageStats() map[string]interface{} {
 		"worker_pool_healthy": s.workerPool != nil,
 	}
 
-	// Добавляем TCP pool статистику если доступна
 	if s.tcpPool != nil {
 		total, healthy := s.tcpPool.GetStats()
 		stats["tcp_connections_total"] = total
@@ -350,13 +319,11 @@ func (s *NetworkSendingStage) GetStageStats() map[string]interface{} {
 	return stats
 }
 
-// ✅ НОВЫЙ метод для health check всего stage
 func (s *NetworkSendingStage) IsHealthy() (bool, string) {
 	if s.workerPool == nil {
 		return false, "worker pool not initialized"
 	}
 
-	// Проверяем TCP pool если используется TCP
 	if s.protocol == "tcp" {
 		if s.tcpPool == nil {
 			return false, "TCP protocol selected but connection pool not initialized"
@@ -377,13 +344,11 @@ func (s *NetworkSendingStage) IsHealthy() (bool, string) {
 	return true, "stage healthy"
 }
 
-// ✅ НОВЫЙ метод для получения рекомендаций по оптимизации
 func (s *NetworkSendingStage) GetOptimizationRecommendations() []string {
 	var recommendations []string
 
 	_, sent, failed, dropped := metrics.GetGlobalMetrics().GetStats()
 
-	// Анализируем метрики и даем рекомендации
 	if dropped > 0 {
 		dropRate := float64(dropped) / float64(float64(sent)+float64(failed)+float64(dropped)) * 100
 		if dropRate > 1.0 {

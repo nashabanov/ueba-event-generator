@@ -3,7 +3,8 @@ package stages
 import (
 	"context"
 	"fmt"
-	"runtime"
+
+	// "runtime"
 	"time"
 
 	"github.com/nashabanov/ueba-event-generator/internal/domain/event"
@@ -47,12 +48,12 @@ func NewEventGenerationStage(name string, eventsPerSecond int) *EventGenerationS
 		queueSize = 1000
 	}
 
-	workerCount := runtime.NumCPU() * 3
+	// workerCount := runtime.NumCPU() * 3
 	workerPool := workers.NewWorkerPool(0, queueSize)
 	workerPool.SetPoolType("generation")
 
-	fmt.Printf("🔧 Creating EventGenerationStage: EPS=%d, QueueSize=%d, Workers=%d\n",
-		eventsPerSecond, queueSize, workerCount) // ✅ ДИАГНОСТИКА
+	// fmt.Printf("🔧 Creating EventGenerationStage: EPS=%d, QueueSize=%d, Workers=%d\n",
+	// 	eventsPerSecond, queueSize, workerCount) //
 
 	return &EventGenerationStage{
 		name:            name,
@@ -67,7 +68,6 @@ func (g *EventGenerationStage) Name() string {
 }
 
 func (g *EventGenerationStage) Run(ctx context.Context, out chan<- *SerializedData) error {
-	// ✅ ИСПРАВЛЯЕМ: используем реальный предел системы
 	measuredTickerEPS := 1160 // Проверенный предел системы
 	safetyMargin := 0.95      // 5% запас на вариативность
 
@@ -84,14 +84,14 @@ func (g *EventGenerationStage) Run(ctx context.Context, out chan<- *SerializedDa
 	expectedEPS := effectiveTickerEPS * batchSize
 	accuracy := float64(expectedEPS) / float64(g.eventsPerSecond) * 100
 
-	fmt.Printf("🚀 Calibrated batch generation:\n")
-	fmt.Printf("   Target EPS: %d\n", g.eventsPerSecond)
-	fmt.Printf("   Measured system limit: %d EPS\n", measuredTickerEPS)
-	fmt.Printf("   Effective ticker EPS: %d (with %.0f%% safety margin)\n",
-		effectiveTickerEPS, (1-safetyMargin)*100)
-	fmt.Printf("   Batch size: %d events per tick\n", batchSize)
-	fmt.Printf("   Expected EPS: %d\n", expectedEPS)
-	fmt.Printf("   Expected accuracy: %.1f%%\n", accuracy)
+	// fmt.Printf("🚀 Calibrated batch generation:\n")
+	// fmt.Printf("   Target EPS: %d\n", g.eventsPerSecond)
+	// fmt.Printf("   Measured system limit: %d EPS\n", measuredTickerEPS)
+	// fmt.Printf("   Effective ticker EPS: %d (with %.0f%% safety margin)\n",
+	// 	effectiveTickerEPS, (1-safetyMargin)*100)
+	// fmt.Printf("   Batch size: %d events per tick\n", batchSize)
+	// fmt.Printf("   Expected EPS: %d\n", expectedEPS)
+	// fmt.Printf("   Expected accuracy: %.1f%%\n", accuracy)
 
 	// Предупреждение если точность может быть низкой
 	if accuracy < 95.0 {
@@ -119,7 +119,7 @@ func (g *EventGenerationStage) Run(ctx context.Context, out chan<- *SerializedDa
 		case <-g.ticker.C:
 			tickCount++
 
-			// ✅ ГЕНЕРИРУЕМ BATCH СОБЫТИЙ за один тик
+			// ГЕНЕРИРУЕМ BATCH СОБЫТИЙ за один тик
 			batchSubmitted := 0
 			batchRejected := 0
 
@@ -158,17 +158,17 @@ func (g *EventGenerationStage) Run(ctx context.Context, out chan<- *SerializedDa
 
 		case <-ctx.Done():
 			// ✅ ФИНАЛЬНАЯ статистика
-			elapsed := time.Since(startTime).Seconds()
-			actualTickRate := float64(tickCount) / elapsed
-			expectedEvents := tickCount * batchSize
-			actualEPS := float64(totalJobsSubmitted) / elapsed
+			// elapsed := time.Since(startTime).Seconds()
+			// actualTickRate := float64(tickCount) / elapsed
+			// expectedEvents := tickCount * batchSize
+			// actualEPS := float64(totalJobsSubmitted) / elapsed
 
-			fmt.Printf("🛑 Batch generation stopped:\n")
-			fmt.Printf("   Runtime: %.1fs\n", elapsed)
-			fmt.Printf("   Ticks: %d (rate: %.1f/sec)\n", tickCount, actualTickRate)
-			fmt.Printf("   Jobs: submitted=%d, rejected=%d\n", totalJobsSubmitted, totalJobsRejected)
-			fmt.Printf("   Expected events: %d, Actual EPS: %.1f\n", expectedEvents, actualEPS)
-			fmt.Printf("   Efficiency: %.1f%%\n", float64(totalJobsSubmitted)/float64(expectedEvents)*100)
+			// fmt.Printf("🛑 Batch generation stopped:\n")
+			// fmt.Printf("   Runtime: %.1fs\n", elapsed)
+			// fmt.Printf("   Ticks: %d (rate: %.1f/sec)\n", tickCount, actualTickRate)
+			// fmt.Printf("   Jobs: submitted=%d, rejected=%d\n", totalJobsSubmitted, totalJobsRejected)
+			// fmt.Printf("   Expected events: %d, Actual EPS: %.1f\n", expectedEvents, actualEPS)
+			// fmt.Printf("   Efficiency: %.1f%%\n", float64(totalJobsSubmitted)/float64(expectedEvents)*100)
 
 			return ctx.Err()
 		}

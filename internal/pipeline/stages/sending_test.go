@@ -89,7 +89,7 @@ func startMockUDPServer(t *testing.T, addr string) (net.PacketConn, chan []byte)
 			// Устанавливаем timeout для чтения
 			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 
-			n, addr, err := conn.ReadFrom(buffer)
+			n, _, err := conn.ReadFrom(buffer)
 			if err != nil {
 				// Проверяем timeout error
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -99,7 +99,7 @@ func startMockUDPServer(t *testing.T, addr string) (net.PacketConn, chan []byte)
 				return // Соединение закрыто или другая ошибка
 			}
 
-			fmt.Printf("UDP server received %d bytes from %s: %s\n", n, addr, string(buffer[:n]))
+			// fmt.Printf("UDP server received %d bytes from %s: %s\n", n, addr, string(buffer[:n]))
 
 			data := make([]byte, n)
 			copy(data, buffer[:n])
