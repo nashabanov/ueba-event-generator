@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"context"
@@ -6,36 +6,26 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/nashabanov/ueba-event-generator/internal/config"
 	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
 	"github.com/nashabanov/ueba-event-generator/internal/pipeline/coordinator"
-	"github.com/nashabanov/ueba-event-generator/internal/pipeline/factory"
 )
 
 // Application основная структура приложения
 type Application struct {
 	config   *config.Config
 	pipeline coordinator.Pipeline
-	monitor  *monitoring.Monitor
+	monitor  monitoring.Monitor
 }
 
 // NewApplication создает новое приложение
-func NewApplication(cfg *config.Config) (*Application, error) {
-	factory := factory.NewPipelineFactory(cfg)
-	pipeline, err := factory.CreatePipeline()
-	if err != nil {
-		return nil, err
-	}
-
-	monitor := monitoring.NewMonitor(10 * time.Second)
-
+func NewApplication(cfg *config.Config, p coordinator.Pipeline, m monitoring.Monitor) *Application {
 	return &Application{
 		config:   cfg,
-		pipeline: pipeline,
-		monitor:  monitor,
-	}, nil
+		pipeline: p,
+		monitor:  m,
+	}
 }
 
 // Run запускает приложение и управляет жизненным циклом
@@ -53,7 +43,7 @@ func (app *Application) Run() error {
 
 	go app.monitor.Start(ctx)
 
-	log.Printf("Starting pipeline with 2 stages...")
+	log.Printf("Starting pipeline...")
 
 	go func() {
 		if err := app.pipeline.Start(ctx); err != nil {
@@ -67,6 +57,11 @@ func (app *Application) Run() error {
 	log.Println("Stopping pipeline...")
 	if err := app.pipeline.Stop(); err != nil {
 		log.Printf("Error stopping pipeline: %v", err)
+	}
+
+	log.Println("Stopping monitor...")
+	if err := app.monitor.Stop(); err != nil {
+		log.Printf("Failed to stop monitor: %v", err)
 	}
 
 	log.Println("Application stopped successfully")

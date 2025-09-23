@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"flag"
@@ -7,7 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nashabanov/ueba-event-generator/cmd/app"
 	"github.com/nashabanov/ueba-event-generator/internal/config"
+	"github.com/nashabanov/ueba-event-generator/internal/monitoring"
+	"github.com/nashabanov/ueba-event-generator/internal/pipeline/factory"
 )
 
 // Версионная информация (заполняется при сборке)
@@ -17,7 +20,21 @@ var (
 	gitCommit = "unknown" // Git коммит
 )
 
-func main() {
+type CLIFlags struct {
+	// Системные флаги
+	showVersion bool
+	showHelp    bool
+
+	// Конфигурационные флаги
+	configFile   string
+	rate         int
+	destinations string
+	protocol     string
+	logLevel     string
+	duration     time.Duration
+}
+
+func Run() {
 	flags := parseComandLineFlags()
 
 	// Обрабатываем специальные флаги
@@ -38,32 +55,25 @@ func main() {
 
 	printConfigInfo(cfg, flags)
 
-	// Создаем приложение
-	app, err := NewApplication(cfg)
+	// Создаем pipeline
+	factory := factory.NewPipelineFactory(cfg)
+	pipeline, err := factory.CreatePipeline()
 	if err != nil {
-		log.Fatalf("Failed to create application: %v", err)
+		log.Fatalf("Failed to build pipeline: %v", err)
 	}
-	// Запускаем приложение
+
+	// Создаем monitoring
+	monitoring := monitoring.NewMonitor(10 * time.Second)
+
+	// Создаем и запускаем приложение
+	app := app.NewApplication(cfg, pipeline, monitoring)
+
 	if err := app.Run(); err != nil {
 		log.Fatalf("Application failed: %v", err)
 	}
 
 	fmt.Println("Configuration loaded successfully!")
 	fmt.Println("Next step: create pipeline...")
-}
-
-type CLIFlags struct {
-	// Системные флаги
-	showVersion bool
-	showHelp    bool
-
-	// Конфигурационные флаги
-	configFile   string
-	rate         int
-	destinations string
-	protocol     string
-	logLevel     string
-	duration     time.Duration
 }
 
 // parseCommandLineFlags парсит все флаги
